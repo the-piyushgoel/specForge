@@ -309,6 +309,103 @@ export function validateSpec(
     }
   }
 
+  // ─── Rule A: ROLE_RULE_NOT_ENFORCED ───────────────────────────────────────
+  const knownRoles = intentIR.roles.map((r) => r.name.toLowerCase());
+  if (knownRoles.length > 0) {
+    for (const rule of intentIR.businessRules) {
+      const lower = rule.description.toLowerCase();
+      for (const role of knownRoles) {
+        const rolePlural = `${role}s`;
+        if (lower.includes(role) || lower.includes(rolePlural)) {
+          const matchedResources: { key: string; name: string }[] = [];
+          if (lower.includes('analytic') || lower.includes('report') || lower.includes('dashboard')) {
+            matchedResources.push({ key: 'analytics', name: 'Analytics' });
+            matchedResources.push({ key: 'dashboard', name: 'Dashboard' });
+          }
+          if (lower.includes('order')) {
+            matchedResources.push({ key: 'order', name: 'Order' });
+          }
+          if (lower.includes('invoice')) {
+            matchedResources.push({ key: 'invoice', name: 'Invoice' });
+          }
+          if (lower.includes('contact')) {
+            matchedResources.push({ key: 'contact', name: 'Contact' });
+          }
+          if (lower.includes('billing') || lower.includes('payment') || lower.includes('subscription')) {
+            matchedResources.push({ key: 'billing', name: 'Billing' });
+          }
+
+          const isAccessControl = lower.includes('can') ||
+            lower.includes('access') ||
+            lower.includes('see') ||
+            lower.includes('view') ||
+            lower.includes('edit') ||
+            lower.includes('only') ||
+            lower.includes('restrict') ||
+            lower.includes('allow') ||
+            lower.includes('role');
+
+          if (isAccessControl && matchedResources.length > 0) {
+            for (const res of matchedResources) {
+              const matchedPages = appGraphIR.pages.filter(
+                (p) => p.route.includes(res.key) || p.title.toLowerCase().includes(res.key) || p.layout === res.key
+              );
+              const matchedEndpoints = appGraphIR.apiEndpoints.filter(
+                (ep) => ep.path.toLowerCase().includes(res.key)
+              );
+
+              const pageEnforced = matchedPages.some((p) => p.requiredRoles.includes(role));
+              const endpointEnforced = matchedEndpoints.some((ep) => ep.auth.roles?.includes(role));
+
+              const hasPagesOrEndpoints = matchedPages.length > 0 || matchedEndpoints.length > 0;
+              if (hasPagesOrEndpoints && !pageEnforced && !endpointEnforced) {
+                emit(
+                  'semantic', 'warning', 'ROLE_RULE_NOT_ENFORCED',
+                  `${res.name} is role-restricted in intent but AppGraph does not enforce ${role}-only access.`,
+                  [
+                    { layer: 'intent', id: rule.id },
+                    ...matchedPages.map((p) => ({ layer: 'ui' as const, id: p.id })),
+                    ...matchedEndpoints.map((ep) => ({ layer: 'api' as const, id: ep.id })),
+                  ],
+                  `Configure requiredRoles on ${res.name} pages and auth.roles on ${res.name} endpoints to include "${role}"`,
+                  false
+                );
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // ─── Rule B: BILLING_MISSING_MODEL ────────────────────────────────────────
+  const hasBillingFeature = intentIR.features.some((f) => f.category === 'billing');
+  const hasBillingEndpoints = appGraphIR.apiEndpoints.some(
+    (ep) => ep.path.includes('/api/billing') || ep.path.includes('subscribe') || ep.path.includes('cancel') || ep.path.includes('subscription')
+  );
+
+  if (hasBillingFeature || hasBillingEndpoints) {
+    const billingTables = ['subscriptions', 'payments', 'plans', 'billing_accounts'];
+    const hasBillingModel = appGraphIR.dataModels.some((m) =>
+      billingTables.includes(m.tableName.toLowerCase())
+    );
+
+    if (!hasBillingModel) {
+      const billingFeat = intentIR.features.find((f) => f.category === 'billing');
+      const billingEp = appGraphIR.apiEndpoints.find((ep) => ep.path.includes('billing'));
+      emit(
+        'cross_layer', 'warning', 'BILLING_MISSING_MODEL',
+        `Billing features or endpoints exist, but no supporting billing data model is defined.`,
+        [
+          ...(billingFeat ? [{ layer: 'intent' as const, id: billingFeat.id }] : []),
+          ...(billingEp ? [{ layer: 'api' as const, id: billingEp.id }] : []),
+        ],
+        `Create a data model table for billing (e.g., subscriptions, payments, or billing_accounts)`,
+        false
+      );
+    }
+  }
+
   // ─── Build report ───────────────────────────────────────────────────────
 
   const summary: ValidationSummary = {

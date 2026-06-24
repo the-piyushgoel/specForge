@@ -64,7 +64,8 @@ function getMockResponse(stage: PipelineStage): string {
         { id: "req_002", text: "Contacts management", category: "data_entity", priority: "must" },
         { id: "req_003", text: "Admin CRM dashboard with analytics", category: "ui_view", priority: "should" },
         { id: "req_004", text: "Role-based access control", category: "authorization", priority: "must" },
-        { id: "req_005", text: "Premium plan with payments", category: "integration", priority: "must" }
+        { id: "req_005", text: "Premium plan with payments", category: "integration", priority: "must" },
+        { id: "req_006", text: "Admins can see analytics", category: "authorization", priority: "must" }
       ]
     });
   }
@@ -77,6 +78,7 @@ function getMockResponse(stage: PipelineStage): string {
         { id: "req_003", text: "Admin CRM dashboard with analytics", category: "ui_view", source: "explicit" },
         { id: "req_004", text: "Role-based access control", category: "authorization", source: "explicit" },
         { id: "req_005", text: "Premium plan with payments", category: "integration", source: "explicit" },
+        { id: "req_006", text: "Admins can see analytics", category: "authorization", source: "explicit" },
         { id: "inf_001", text: "Password reset flow", category: "auth", source: "inferred", inferredFrom: "req_001" },
         { id: "inf_002", text: "Subscription tiers and billing", category: "integration", source: "inferred", inferredFrom: "req_005" },
         { id: "inf_003", text: "User session management", category: "auth", source: "inferred", inferredFrom: "req_001" },

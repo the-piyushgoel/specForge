@@ -34,7 +34,7 @@ import type {
  */
 export function buildAppGraphIR(intent: IntentIR): AppGraphIR {
   const entityMap = new Map(intent.entities.map((e) => [e.id, e]));
-  const ruleIndex = buildRuleIndex(intent.businessRules);
+  const ruleIndex = buildRuleIndex(intent.businessRules, intent.roles, intent.features);
 
   const dataModels = buildDataModels(intent.entities, intent.roles);
   const endpoints = buildEndpoints(intent.features, intent.entities, intent.roles, ruleIndex);
@@ -51,17 +51,90 @@ interface RuleIndex {
   planGates: Map<string, string>;     // featureId → plan name
 }
 
-function buildRuleIndex(rules: BusinessRule[]): RuleIndex {
+function buildRuleIndex(rules: BusinessRule[], roles: Role[], features: Feature[]): RuleIndex {
   const roleGates = new Map<string, string[]>();
   const planGates = new Map<string, string>();
+
+  const knownRoles = roles.map((r) => r.name.toLowerCase());
+  if (!knownRoles.includes('admin')) knownRoles.push('admin');
+  if (!knownRoles.includes('user')) knownRoles.push('user');
+  if (!knownRoles.includes('manager')) knownRoles.push('manager');
+  if (!knownRoles.includes('staff')) knownRoles.push('staff');
+  if (!knownRoles.includes('customer')) knownRoles.push('customer');
+
+  const addRoleGate = (resource: string, role: string) => {
+    const existing = roleGates.get(resource) ?? [];
+    if (!existing.includes(role)) {
+      roleGates.set(resource, [...existing, role]);
+    }
+  };
+
+  const matchResource = (text: string): string[] => {
+    const resources: string[] = [];
+    const lower = text.toLowerCase();
+    if (lower.includes('analytic') || lower.includes('report') || lower.includes('dashboard')) {
+      resources.push('analytics', 'dashboard');
+    }
+    if (lower.includes('order')) {
+      resources.push('order');
+    }
+    if (lower.includes('invoice')) {
+      resources.push('invoice');
+    }
+    if (lower.includes('contact')) {
+      resources.push('contact');
+    }
+    if (lower.includes('billing') || lower.includes('payment') || lower.includes('subscription')) {
+      resources.push('billing');
+    }
+    return resources;
+  };
 
   for (const rule of rules) {
     const lower = rule.description.toLowerCase();
 
-    // Extract role-gated patterns: "admins can access analytics"
-    if (lower.includes('admin') && (lower.includes('analytics') || lower.includes('dashboard'))) {
-      roleGates.set('analytics', ['admin']);
-      roleGates.set('dashboard', ['admin']);
+    for (const role of knownRoles) {
+      const rolePlural = `${role}s`;
+      const hasRole = lower.includes(role) || lower.includes(rolePlural);
+      if (!hasRole) continue;
+
+      const matchedResources = matchResource(lower);
+      for (const res of matchedResources) {
+        if (
+          lower.includes('can') ||
+          lower.includes('access') ||
+          lower.includes('see') ||
+          lower.includes('view') ||
+          lower.includes('edit') ||
+          lower.includes('only') ||
+          lower.includes('restrict') ||
+          lower.includes('allow') ||
+          lower.includes('role')
+        ) {
+          addRoleGate(res, role);
+        }
+      }
+    }
+  }
+
+  for (const feat of features) {
+    const lowerName = feat.name.toLowerCase();
+    for (const role of knownRoles) {
+      if (
+        lowerName.includes(`${role}-only`) ||
+        lowerName.includes(`${role}only`) ||
+        lowerName.startsWith(`${role}-`) ||
+        lowerName.includes(`${role} dashboard`) ||
+        lowerName.includes(`${role}dashboard`)
+      ) {
+        if (feat.category === 'analytics' || feat.category === 'dashboard') {
+          addRoleGate('analytics', role);
+          addRoleGate('dashboard', role);
+        } else {
+          addRoleGate(feat.category, role);
+          addRoleGate(feat.name.replace(/-management$|-tracking$|-crud$/, ''), role);
+        }
+      }
     }
   }
 

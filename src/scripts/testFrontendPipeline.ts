@@ -1,8 +1,10 @@
 import 'dotenv/config';
 import { runPipeline } from '../pipeline/runPipeline';
 import { CRM_PROMPT } from '../fixtures/samplePrompts';
-
 import { MOCK_LLM } from '../llm/client';
+import { assembleAppSpec } from '../pipeline/assemble';
+import { validateSpec } from '../pipeline/validate';
+import { repairSpec } from '../pipeline/repair';
 
 async function main() {
   console.log('🚀 Starting SpecForge Full Pipeline Test');
@@ -129,6 +131,76 @@ async function main() {
     console.log(`  artifacts/${result.runId}/`);
     
     console.log('\n✨ Full pipeline completed successfully.');
+
+    // ── SCENARIO B: Broken Demo Case ──────────────────────────────────────
+    console.log('\n\n🚀 Starting Scenario B: Broken Demo (Validation & Repair)');
+    console.log('════════════════════════════════════════════');
+    
+    // Deep clone the AppGraphIR to prevent mutating Scenario A artifacts
+    const brokenAppGraphIR = JSON.parse(JSON.stringify(appGraphIR));
+    
+    // Break the specification:
+    // 1. Remove the login page (triggers AUTH_MISSING_LOGIN_PAGE, auto-fixable)
+    brokenAppGraphIR.pages = brokenAppGraphIR.pages.filter((p: any) => p.id !== 'page_login');
+    
+    // 2. Remove the contact CRUD pages (triggers CRUD_MISSING_PAGE, auto-fixable)
+    brokenAppGraphIR.pages = brokenAppGraphIR.pages.filter((p: any) => !p.id.includes('contact'));
+
+    console.log('⚠️  Intentionally removed "page_login" and all contact pages from AppGraphIR.');
+
+    // Assemble the broken spec
+    const brokenSpec = assembleAppSpec(
+      extraction,
+      enrichment,
+      intentIR,
+      brokenAppGraphIR,
+      CRM_PROMPT
+    );
+
+    console.log('\n🔍 Running Validation on Broken Spec...');
+    const brokenValidation = validateSpec(brokenSpec, 1);
+    console.log(`  Initial Status:    ❌ ${brokenValidation.status}`);
+    console.log(`  Errors:            ${brokenValidation.summary.errors}`);
+    console.log(`  Warnings:          ${brokenValidation.summary.warnings}`);
+    console.log(`  Auto-fixable:      ${brokenValidation.summary.autoFixable}`);
+
+    if (brokenValidation.issues.length > 0) {
+      console.log('  Issues found:');
+      for (const issue of brokenValidation.issues) {
+        const icon = issue.severity === 'error' ? '🔴' : '🟡';
+        console.log(`    ${icon} [${issue.code}] ${issue.message} (Auto-fixable: ${issue.autoFixable})`);
+      }
+    }
+
+    // Filter auto-fixable issues
+    const fixableIssues = brokenValidation.issues.filter((i) => i.autoFixable);
+    
+    if (fixableIssues.length > 0) {
+      console.log(`\n🔧 Applying ${fixableIssues.length} auto-repair patches...`);
+      const { repairedSpec, patchLog } = repairSpec(brokenSpec, fixableIssues, 1);
+      
+      for (const patch of patchLog.patches) {
+        const icon = patch.applied ? '🔧' : '⏭️';
+        console.log(`    ${icon} [${patch.targetLayer}] ${patch.description}`);
+      }
+
+      console.log('\n🔍 Re-running Validation on Repaired Spec...');
+      const postRepairValidation = validateSpec(repairedSpec, 2);
+      const statusIcon = postRepairValidation.status === 'passed' ? '✅' : postRepairValidation.status === 'passed_with_warnings' ? '⚠️' : '❌';
+      console.log(`  Final Status:      ${statusIcon} ${postRepairValidation.status}`);
+      console.log(`  Errors:            ${postRepairValidation.summary.errors}`);
+      console.log(`  Warnings:          ${postRepairValidation.summary.warnings}`);
+
+      if (postRepairValidation.issues.length > 0) {
+        console.log('  Remaining Issues:');
+        for (const issue of postRepairValidation.issues) {
+          const icon = issue.severity === 'error' ? '🔴' : '🟡';
+          console.log(`    ${icon} [${issue.code}] ${issue.message}`);
+        }
+      }
+    } else {
+      console.log('\n  No auto-fixable issues found to repair.');
+    }
 
   } catch (error) {
     console.error('\n❌ Pipeline failed during execution:');
