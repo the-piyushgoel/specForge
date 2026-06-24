@@ -1,0 +1,21 @@
+{
+  "name": "specforge",
+  "version": "0.1.0",
+  "description": "A compiler-style system for software generation",
+  "private": true,
+  "scripts": {
+    "dev:test-frontend": "tsx src/scripts/testFrontendPipeline.ts",
+    "typecheck": "tsc --noEmit",
+    "clean:artifacts": "node -e \"const fs = require('fs'); if (fs.existsSync('./artifacts')) fs.rmSync('./artifacts', { recursive: true, force: true }); console.log('Artifacts cleaned.');\""
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "openai": "^4.52.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.3"
+  }
+}
